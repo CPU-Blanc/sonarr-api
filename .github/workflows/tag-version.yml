@@ -1,0 +1,61 @@
+name: "tag version"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      is-new: ${{ steps.check-new.outputs.is_new_version }}
+      new-tag: ${{ steps.check-new.outputs.version }}
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+
+      - name: check current tag
+        id: check-new
+        uses: digicatapult/check-version@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          package_manager: 'cargo'
+          cargo_package_location: './'
+          fail_on_same_version: 'false'
+
+  create-tag:
+    needs: check-version
+    if: ${{ needs.check-version.outputs.is-new == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v4
+
+      - name: parse version
+        id: semver
+        uses: release-kit/semver@v2
+        with:
+          string: ${{ needs.check-version.outputs.new-tag }}
+
+      - name: create tags
+        shell: bash
+        run: |
+          git tag ${{ needs.check-version.outputs.new-tag }}
+          git tag -f v${{ steps.semver.outputs.major }}.${{ steps.semver.outputs.minor }}
+          git push origin --tags
+
+      - name: tag major
+        shell: bash
+        if: ${{ !startsWith(needs.check-version.outputs.new-tag, 'v0.') }}
+        run: |
+          git tag -f v${{ steps.semver.outputs.major }}
+          git push origin --tags
